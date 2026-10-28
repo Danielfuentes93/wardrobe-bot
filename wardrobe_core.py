@@ -1,20 +1,16 @@
 """Fashionista core logic (extracted from wardrobe_app.ipynb).
 
-Pure standard library, plus the optional `openai` package for the LLM stylist.
-Data lives in DATA_DIR (default: ./data next to this file; override with FASHIONISTA_DATA).
+Public (multi-user) edition: pure standard library, no file I/O at all.  Every visitor's closet, style
+profile and chat live in memory (the Streamlit session); the LLM client is created by guards.py, which
+also enforces the message limits, so this module never reads API keys or environment variables.
 """
 from __future__ import annotations
 
 import json
-import os
 import re
-import shutil
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import product
-from pathlib import Path
-
-DATA_DIR = Path(os.environ.get("FASHIONISTA_DATA", Path(__file__).parent / "data"))
 
 # ---------------------------------------------------------------- vocab
 TYPES = ["top", "bottom", "outer", "shoes", "dress"]
@@ -51,7 +47,7 @@ class Garment:
     banned: bool = False
     times_worn: int = 0
     last_worn: date | None = None
-    photo: str | None = None  # file name inside DATA_DIR/photos
+    has_photo: bool = False  # the photo bytes live in the visitor's session (st.session_state), never on disk
 
     def __post_init__(self):
         assert self.type in TYPES, f"bad type {self.type}"
@@ -62,11 +58,6 @@ class Garment:
     def days_since_worn(self) -> int:
         return 999 if self.last_worn is None else (today() - self.last_worn).days
 
-    def photo_path(self, data_dir: Path | None = None) -> Path | None:
-        if not self.photo:
-            return None
-        p = Path(data_dir or DATA_DIR) / "photos" / self.photo
-        return p if p.exists() else None
 
 
 class Wardrobe:
@@ -94,21 +85,6 @@ class Wardrobe:
             groups[g.layer].append(g)
         return groups
 
-    def save(self, path):
-        data = []
-        for g in self.items.values():
-            d = asdict(g)
-            d["last_worn"] = g.last_worn.isoformat() if g.last_worn else None
-            data.append(d)
-        Path(path).write_text(json.dumps(data, indent=2))
-
-    @classmethod
-    def load(cls, path):
-        w = cls()
-        for d in json.loads(Path(path).read_text()):
-            d["last_worn"] = date.fromisoformat(d["last_worn"]) if d["last_worn"] else None
-            w.add_item(Garment(**d))
-        return w
 
 
 def sample_closet() -> Wardrobe:
@@ -203,17 +179,6 @@ class StyleProfile:
         kv = [(k.split(":", 1)[1], v) for k, v in self.weights.items() if k.startswith(prefix + ":")]
         return sorted(kv, key=lambda x: -x[1])[:n]
 
-    def save(self, path):
-        Path(path).write_text(json.dumps({"weights": self.weights, "banned_ids": sorted(self.banned_ids),
-                                          "events": self.events}, indent=2))
-
-    @classmethod
-    def load(cls, path):
-        p = cls()
-        if Path(path).exists():
-            d = json.loads(Path(path).read_text())
-            p.weights, p.banned_ids, p.events = d["weights"], set(d["banned_ids"]), d["events"]
-        return p
 
 
 # ---------------------------------------------------------------- outfit engine
@@ -393,22 +358,6 @@ def parse_chat(message, temp_f=58, condition="dry"):
     return req
 
 
-def llm_model():
-    default = "grok-3-mini" if "x.ai" in os.environ.get("OPENAI_BASE_URL", "") else "gpt-4o-mini"
-    return os.environ.get("OPENAI_MODEL", default)
-
-
-def get_llm_client():
-    """OpenAI-compatible client, or None (offline) if no key or no `openai` package."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        return None
-    try:
-        from openai import OpenAI
-    except ImportError:
-        return None
-    return OpenAI(base_url=os.environ.get("OPENAI_BASE_URL") or None)
-
-
 SYSTEM_PROMPT = """You are Wardrobe Bot, a friendly personal stylist inside the Fashionista app.
 Pick ONE outfit using ONLY garment ids from the user's closet JSON. Never invent items.
 A valid outfit is top+bottom+shoes or dress+shoes, optionally with a mid-layer and/or outer layer.
@@ -469,55 +418,34 @@ def rules_answer(message, wardrobe, profile, note):
     return {"reply": f"How about {o['name']}?", "items": o["items"], "reasoning": o["reason"], "source": note}
 
 
-def stylist_chat(message, history, wardrobe, profile, req=None, client="auto"):
+def stylist_chat(message, history, wardrobe, profile, req=None, client=None, model="gpt-4o-mini", max_tokens=600):
+    """Answer one chat message.  `client` None means the free offline rules.
+
+    The result has `llm_error` (None, or {"type", "status"}) so the app can show a banner and stop calling
+    the API after auth/credit errors.  Only the exception class and HTTP status are kept (never its text,
+    which could echo part of a key).
+    """
     req = req or parse_chat(message)
-    client = get_llm_client() if client == "auto" else client
+    llm_error = None
     if client is None:
         ans = rules_answer(message, wardrobe, profile, "offline rules")
     else:
         try:
             resp = client.chat.completions.create(
-                model=llm_model(), messages=build_messages(message, history, wardrobe, profile, req),
-                response_format={"type": "json_object"}, temperature=0.7)
+                model=model, messages=build_messages(message, history, wardrobe, profile, req),
+                response_format={"type": "json_object"}, temperature=0.7, max_tokens=max_tokens)
             data = json.loads(resp.choices[0].message.content)
             pieces = validate_outfit(data.get("outfit"), wardrobe, profile)
             if pieces is None:
                 ans = rules_answer(message, wardrobe, profile, "rules (LLM picked invalid items)")
             else:
-                ans = {"reply": str(data.get("reply", "")), "items": pieces,
-                       "reasoning": str(data.get("reasoning", "")), "source": f"llm ({llm_model()})"}
+                ans = {"reply": str(data.get("reply", ""))[:600], "items": pieces,
+                       "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model})"}
         except Exception as e:
+            llm_error = {"type": type(e).__name__, "status": getattr(e, "status_code", None)}
             ans = rules_answer(message, wardrobe, profile, f"rules (LLM error: {type(e).__name__})")
+    ans["llm_error"] = llm_error
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": ans["reply"], "item_ids": [g.id for g in ans["items"]],
                     "reasoning": ans["reasoning"], "source": ans["source"]})
     return ans
-
-
-# ---------------------------------------------------------------- persistence helpers
-def paths(data_dir=None):
-    d = Path(data_dir or DATA_DIR)
-    (d / "photos").mkdir(parents=True, exist_ok=True)
-    return d / "closet.json", d / "style_profile.json", d / "photos"
-
-
-def load_state(data_dir=None):
-    """Load closet + profile; seed the sample closet on first run."""
-    closet_p, profile_p, _ = paths(data_dir)
-    if not closet_p.exists():
-        sample_closet().save(closet_p)
-    return Wardrobe.load(closet_p), StyleProfile.load(profile_p)
-
-
-def save_state(wardrobe, profile, data_dir=None):
-    closet_p, profile_p, _ = paths(data_dir)
-    wardrobe.save(closet_p)
-    profile.save(profile_p)
-
-
-def reset_demo(data_dir=None):
-    closet_p, profile_p, photos = paths(data_dir)
-    shutil.rmtree(photos, ignore_errors=True)
-    profile_p.unlink(missing_ok=True)
-    sample_closet().save(closet_p)
-    paths(data_dir)
