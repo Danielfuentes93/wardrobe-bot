@@ -15,7 +15,7 @@ Without a key the Stylist tab runs in **Offline mode** and uses the built-in rul
 ```powershell
 setx OPENAI_API_KEY "xai-..."          # your xAI API key (never put it in the code)
 setx OPENAI_BASE_URL "https://api.x.ai/v1"
-setx OPENAI_MODEL "grok-3-mini"        # optional; check docs.x.ai for current model names
+setx OPENAI_MODEL "grok-4.3"           # optional (this is the default); check docs.x.ai for current model names
 ```
 `setx` only affects **new** windows, so close and reopen the terminal (or VS Code) and run `streamlit run app.py` again. The Stylist tab should then say **Online · model ...**. Any OpenAI-compatible provider works if you change `OPENAI_BASE_URL`.
 
@@ -26,4 +26,4 @@ Privacy note: in online mode, a summary of your closet and style profile is sent
 - `wardrobe_core.py`: the logic (garments, outfit engine, style profile, gap analysis, chat stylist)
 - `.streamlit/config.toml`: theme (cream `#f8f5f0`, terracotta `#c47a6c`)
 - `data/`: `closet.json`, `style_profile.json`, `photos/` (created automatically). Use **Reset demo data** in the sidebar to start over.
-- `tests/test_app.py`: automated tests (`python tests/test_app.py`)
+- `tests/test_core.py`: automated tests (`python tests/test_core.py` or `pytest`)
