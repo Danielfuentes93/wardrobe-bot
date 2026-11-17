@@ -7,6 +7,7 @@ also enforces the message limits, so this module never reads API keys or environ
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -24,10 +25,29 @@ COLOR_NAMES = {"blue": "navy", "black": "noir", "white": "crisp", "brown": "eart
 STYLE_WORDS = ["balance", "edit", "classic", "uniform", "mix"]
 MIN_ITEMS = 8
 NO_REASONS = ["too hot", "too formal", "wrong pieces", "don't own it", "ban this item"]
+# rain gear is recognised from the garment name (there is no "waterproof" field yet)
+RAIN_OUTER_WORDS = ("rain", "trench", "mac", "parka", "shell", "waterproof", "anorak", "slicker", "poncho")
+RAIN_BAD_SHOE_WORDS = ("sneaker", "trainer", "canvas", "suede", "sandal", "espadrille", "slipper", "satin", "heel")
+
+log = logging.getLogger("fashionista")
 
 
 def today() -> date:
     return date.today()
+
+
+def _name_has(g, words) -> bool:
+    return any(re.search(rf"\b{w}", g.name.lower()) for w in words)
+
+
+def is_rain_outer(g) -> bool:
+    """An outer layer that keeps you dry (raincoat, trench, mac, parka...)."""
+    return g.layer == "outer" and _name_has(g, RAIN_OUTER_WORDS)
+
+
+def is_rain_bad_shoe(g) -> bool:
+    """Shoes that get ruined or soaked in the rain (sneakers, suede, sandals...)."""
+    return g.type == "shoes" and _name_has(g, RAIN_BAD_SHOE_WORDS)
 
 
 def default_layer(gtype: str) -> str:
@@ -112,8 +132,9 @@ def sample_closet() -> Wardrobe:
 @dataclass
 class OutfitRequest:
     plans: str = "work"  # "work" or "off duty"
-    temp_f: int = 58
+    temp_f: int = 58  # used for scoring; only shown to the user when temp_given is True
     condition: str = "dry"  # "dry" or "rain"
+    temp_given: bool = True  # False when the chat message gave no temperature (58 is then just an assumption)
     no_repeat_yesterday: bool = True
     color_theme: str | None = None
     min_days_unworn: int = 0
@@ -198,6 +219,10 @@ def build_combos(items, req):
     by_type = {t: [g for g in items if g.type == t] for t in TYPES}
     mids = [g for g in items if g.layer == "mid-layer"]
     outers = [g for g in items if g.layer == "outer"]
+    if req.condition == "rain":
+        # rain: use real rain gear when the closet has it, and skip sneakers/suede/sandals if other shoes exist
+        outers = [g for g in outers if is_rain_outer(g)] or outers
+        by_type["shoes"] = [g for g in by_type["shoes"] if not is_rain_bad_shoe(g)] or by_type["shoes"]
     bases = [g for g in by_type["top"] if g.layer == "base"]
     cores = [list(c) for c in product(bases, by_type["bottom"], by_type["shoes"])]
     cores += [[d, s] for d, s in product(by_type["dress"], by_type["shoes"])]
@@ -230,10 +255,26 @@ def describe(outfit, req, top_color, rank):
     d = outfit[0].days_since_worn()
     worn = "Never worn yet." if d >= 999 else f"Not worn in {d} day{'' if d == 1 else 's'}."
     warmth = sum(WARMTH[g.warmth] for g in outfit) / len(outfit)
-    reason = f"{worn} {'Light enough' if warmth <= 1.7 else 'Warm enough'} for {req.temp_f}°."
-    if req.condition == "rain" and any(g.layer == "outer" for g in outfit):
-        reason += " Covered for rain."
+    if req.temp_given:
+        reason = f"{worn} {'Light enough' if warmth <= 1.7 else 'Warm enough'} for {req.temp_f}°."
+    else:
+        reason = f"{worn} Layered for mild weather (add a temperature for a better fit)."
+    if req.condition == "rain":
+        reason += " " + rain_note(outfit)
     return name, reason
+
+
+def rain_note(outfit) -> str:
+    """Only claim the look is covered for rain when it really has rain gear."""
+    if any(is_rain_outer(g) for g in outfit):
+        note = "Covered for rain."
+    elif any(g.layer == "outer" for g in outfit):
+        note = "Your coat isn't rainproof, so bring an umbrella."
+    else:
+        note = "No coat in your closet for rain, so bring an umbrella."
+    if any(is_rain_bad_shoe(g) for g in outfit):
+        note += " These shoes aren't great in the wet (you have no other pair)."
+    return note
 
 
 def suggest(wardrobe, req, n=3):
@@ -339,7 +380,7 @@ def gap_analysis(wardrobe, when=None):
 # ---------------------------------------------------------------- chat stylist
 def parse_chat(message, temp_f=58, condition="dry"):
     m = message.lower()
-    req = OutfitRequest(temp_f=temp_f, condition=condition)
+    req = OutfitRequest(temp_f=temp_f, condition=condition, temp_given=False)
     if any(w in m for w in ["meeting", "work", "office", "business", "interview"]):
         req.plans = "work"
     if any(w in m for w in ["weekend", "casual", "off duty", "brunch", "relax"]):
@@ -351,7 +392,7 @@ def parse_chat(message, temp_f=58, condition="dry"):
         req.condition = "rain"
     t = re.search(r"(\d+)\s*(?:°|degrees|f\b)", m)
     if t:
-        req.temp_f = int(t.group(1))
+        req.temp_f, req.temp_given = int(t.group(1)), True
     d = re.search(r"(?:last|past)\s+(\d+)\s+days", m)
     if d:
         req.min_days_unworn = int(d.group(1))
@@ -374,7 +415,9 @@ def closet_context(wardrobe, profile, req):
                    for g in wardrobe.available()],
         "style_profile": {"weights": {k: round(v, 2) for k, v in profile.weights.items()},
                           "banned_ids": sorted(profile.banned_ids)},
-        "today": {"date": today().isoformat(), "plans": req.plans, "temp_f": req.temp_f, "condition": req.condition},
+        "today": {"date": today().isoformat(), "plans": req.plans,
+                  "temp_f": req.temp_f if req.temp_given else None,  # None = not given; don't invent one
+                  "condition": req.condition},
         "recent_wear": [{"id": g.id, "name": g.name, "last_worn": g.last_worn.isoformat()} for g in recent],
     }
 
@@ -382,7 +425,7 @@ def closet_context(wardrobe, profile, req):
 def build_messages(message, history, wardrobe, profile, req):
     ctx = json.dumps(closet_context(wardrobe, profile, req), separators=(",", ":"))
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "system", "content": "CONTEXT " + ctx}]
-    msgs += [{"role": h["role"], "content": h["content"]} for h in history[-6:]]
+    msgs += [{"role": h["role"], "content": h["content"]} for h in history[-6:] if str(h.get("content", "")).strip()]
     msgs.append({"role": "user", "content": message})
     return msgs
 
@@ -418,32 +461,75 @@ def rules_answer(message, wardrobe, profile, note):
     return {"reply": f"How about {o['name']}?", "items": o["items"], "reasoning": o["reason"], "source": note}
 
 
-def stylist_chat(message, history, wardrobe, profile, req=None, client=None, model="gpt-4o-mini", max_tokens=600):
+def build_chat_request(model, messages, max_tokens=600, reasoning_effort=None) -> dict:
+    """Keyword arguments for client.chat.completions.create (pure, so it can be unit-tested).
+
+    Only parameters every current xAI chat model accepts are sent: no presence/frequency penalties or `stop`
+    (reasoning models reject those with HTTP 400).  `reasoning_effort` is optional and goes in extra_body so
+    it works with any version of the openai package.
+    """
+    kw = {"model": model, "messages": messages, "response_format": {"type": "json_object"},
+          "temperature": 0.7, "max_tokens": max_tokens}
+    if reasoning_effort:
+        kw["extra_body"] = {"reasoning_effort": reasoning_effort}
+    return kw
+
+
+_SECRET_RE = re.compile(r"(xai-|sk-)[A-Za-z0-9_\-]{4,}")
+
+
+def describe_api_error(e) -> dict:
+    """{"type", "status", "message"} for an API exception.  The message is the provider's error text with
+    anything that looks like an API key masked, cut to 300 characters, so a 400 can actually be diagnosed."""
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        inner = body.get("error", body)
+        msg = (inner.get("message") or inner.get("error") or json.dumps(body)) if isinstance(inner, dict) else str(inner)
+    elif body:
+        msg = str(body)
+    else:
+        msg = str(e)
+    msg = _SECRET_RE.sub(r"\1***", str(msg)).strip()[:300]
+    return {"type": type(e).__name__, "status": getattr(e, "status_code", None), "message": msg}
+
+
+def stylist_chat(message, history, wardrobe, profile, req=None, client=None, model="gpt-4o-mini", max_tokens=600,
+                 reasoning_effort=None):
     """Answer one chat message.  `client` None means the free offline rules.
 
-    The result has `llm_error` (None, or {"type", "status"}) so the app can show a banner and stop calling
-    the API after auth/credit errors.  Only the exception class and HTTP status are kept (never its text,
-    which could echo part of a key).
+    The result has `llm_error` (None, or {"type", "status", "message"}) so the app can show a banner, refund
+    the visitor's message, and stop calling the API after auth/credit errors.  The message is masked by
+    describe_api_error and also written to the server log (Streamlit Cloud: Manage app > Logs).
     """
     req = req or parse_chat(message)
     llm_error = None
     if client is None:
         ans = rules_answer(message, wardrobe, profile, "offline rules")
     else:
+        resp = None
         try:
-            resp = client.chat.completions.create(
-                model=model, messages=build_messages(message, history, wardrobe, profile, req),
-                response_format={"type": "json_object"}, temperature=0.7, max_tokens=max_tokens)
-            data = json.loads(resp.choices[0].message.content)
-            pieces = validate_outfit(data.get("outfit"), wardrobe, profile)
-            if pieces is None:
+            resp = client.chat.completions.create(**build_chat_request(
+                model, build_messages(message, history, wardrobe, profile, req), max_tokens, reasoning_effort))
+        except Exception as e:
+            llm_error = describe_api_error(e)
+            log.warning("LLM call failed: model=%s type=%s status=%s message=%s",
+                        model, llm_error["type"], llm_error["status"], llm_error["message"])
+            ans = rules_answer(message, wardrobe, profile, f"rules (LLM error: {llm_error['type']})")
+        if resp is not None:
+            try:
+                data = json.loads(resp.choices[0].message.content or "")
+                pieces = validate_outfit(data.get("outfit"), wardrobe, profile)
+            except (ValueError, AttributeError, IndexError, TypeError):
+                data, pieces = None, None
+                log.warning("LLM reply was not usable JSON (model=%s, finish_reason=%s)", model,
+                            getattr(resp.choices[0], "finish_reason", "?") if getattr(resp, "choices", None) else "?")
+            if data is None:
+                ans = rules_answer(message, wardrobe, profile, "rules (LLM reply unreadable)")
+            elif pieces is None:
                 ans = rules_answer(message, wardrobe, profile, "rules (LLM picked invalid items)")
             else:
                 ans = {"reply": str(data.get("reply", ""))[:600], "items": pieces,
                        "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model})"}
-        except Exception as e:
-            llm_error = {"type": type(e).__name__, "status": getattr(e, "status_code", None)}
-            ans = rules_answer(message, wardrobe, profile, f"rules (LLM error: {type(e).__name__})")
     ans["llm_error"] = llm_error
     history.append({"role": "user", "content": message})
     history.append({"role": "assistant", "content": ans["reply"], "item_ids": [g.id for g in ans["items"]],
