@@ -15,8 +15,10 @@ import streamlit as st
 SESSION_LLM_LIMIT = 10          # Grok messages per visitor session
 MAX_MESSAGE_CHARS = 400         # per chat message
 DEFAULT_DAILY_CAP = 300         # Grok calls per UTC day across ALL visitors (override: secret DAILY_LLM_CAP)
-DEFAULT_MAX_TOKENS = 600        # cap on the model's reply (override: secret LLM_MAX_TOKENS)
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+DEFAULT_MAX_TOKENS = 1200       # cap on the model's reply incl. reasoning tokens (override: secret LLM_MAX_TOKENS)
+DEFAULT_XAI_MODEL = "grok-4.3"  # grok-3-mini is no longer in xAI's model list (override: secret OPENAI_MODEL)
+MAX_UPLOAD_MB = 5               # keep in sync with server.maxUploadSize in .streamlit/config.toml
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
 MAX_PHOTO_PX = 800
 THUMB_PX = 240
 MAX_ITEMS = 30                  # closet size per visitor
@@ -50,7 +52,18 @@ def int_secret(name: str, default: int) -> int:
 
 def llm_model() -> str:
     base = str(get_secret("OPENAI_BASE_URL", ""))
-    return str(get_secret("OPENAI_MODEL", "grok-3-mini" if "x.ai" in base else "gpt-4o-mini"))
+    return str(get_secret("OPENAI_MODEL", DEFAULT_XAI_MODEL if "x.ai" in base else "gpt-4o-mini")).strip()
+
+
+def llm_reasoning_effort(model: str):
+    """reasoning_effort to send, or None to leave it out.  Secret LLM_REASONING_EFFORT overrides
+    ("omit" = never send it).  Default: "low" for grok-4.3 so reasoning doesn't eat the whole max_tokens."""
+    val = str(get_secret("LLM_REASONING_EFFORT", "")).strip().lower()
+    if val == "omit":
+        return None
+    if val:
+        return val
+    return "low" if model.startswith("grok-4.3") else None
 
 
 def make_llm_client():
@@ -95,6 +108,13 @@ class DailyBudget:
                 return False
             self.used += 1
             return True
+
+    def refund(self, now=None):
+        """Give back a reserved call that failed at the API (nothing was billed)."""
+        now = self._now(now)
+        with self.lock:
+            self._roll(now)
+            self.used = max(self.used - 1, 0)
 
     def mark_down(self, minutes: int = DOWN_MINUTES, now=None):
         from datetime import timedelta
@@ -144,7 +164,7 @@ def process_photo(raw: bytes) -> tuple[bytes, bytes]:
     """Validate an upload and return (jpeg <=800px, jpeg thumbnail).  Raises PhotoError with a friendly message."""
     from PIL import Image, ImageOps, UnidentifiedImageError
     if len(raw) > MAX_UPLOAD_BYTES:
-        raise PhotoError(f"That photo is {len(raw) / 1048576:.1f} MB. The limit is 5 MB.")
+        raise PhotoError(f"That photo is {len(raw) / 1048576:.1f} MB. The limit is {MAX_UPLOAD_MB} MB.")
     Image.MAX_IMAGE_PIXELS = 40_000_000  # refuse decompression bombs
     try:
         probe = Image.open(io.BytesIO(raw))

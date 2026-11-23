@@ -246,7 +246,7 @@ with tab_closet:
             with st.form("add_form", clear_on_submit=True):
                 name = st.text_input("Name", placeholder="e.g. Trench Coat", key="add_name")
                 c1, c2 = st.columns(2)
-                upload = c1.file_uploader("Upload a photo (max 5 MB)", type=["png", "jpg", "jpeg", "webp"], key="add_upload")
+                upload = c1.file_uploader(f"Upload a photo (max {guards.MAX_UPLOAD_MB} MB)", type=["png", "jpg", "jpeg", "webp"], key="add_upload")
                 camera = c2.camera_input("…or take one", key="add_camera")
                 gtype = choice("Type", core.TYPES, "add_type", "top")
                 color = choice("Color", core.COLORS, "add_color", "blue")
@@ -470,14 +470,21 @@ with tab_chat:
                             notice = "The class demo reached today's Grok limit. Using the free offline stylist until tomorrow (UTC)."
                     else:
                         use_llm = True
-                        st.session_state["llm_used"] += 1  # every attempt counts, even if the API then errors
+                        st.session_state["llm_used"] += 1  # refunded below if the API call fails
+                model = guards.llm_model()
                 ans = core.stylist_chat(prompt, history, wardrobe, profile, client=client if use_llm else None,
-                                        model=guards.llm_model(),
-                                        max_tokens=guards.int_secret("LLM_MAX_TOKENS", guards.DEFAULT_MAX_TOKENS))
+                                        model=model,
+                                        max_tokens=guards.int_secret("LLM_MAX_TOKENS", guards.DEFAULT_MAX_TOKENS),
+                                        reasoning_effort=guards.llm_reasoning_effort(model))
                 err = ans["llm_error"]
                 if err:
+                    # a failed call isn't billed, so it shouldn't use up the visitor's messages or the daily cap
+                    st.session_state["llm_used"] = max(st.session_state["llm_used"] - 1, 0)
+                    budget.refund()
                     code = f" (HTTP {err['status']})" if err["status"] else ""
-                    notice = f"The Grok API returned an error [{err['type']}{code}] for your last message, so the free offline stylist answered."
+                    detail = f": {err['message'][:160]}" if err.get("message") else ""
+                    notice = (f"The Grok API returned an error [{err['type']}{code}{detail}] for your last message, "
+                              "so the free offline stylist answered. It didn't count against your messages.")
                     if err["status"] in guards.PERSISTENT_ERROR_STATUS:
                         budget.mark_down()  # bad key / no credits / rate limit: stop calling for everyone for a few minutes
                 st.session_state["llm_notice"] = notice
