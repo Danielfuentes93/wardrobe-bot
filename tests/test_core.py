@@ -122,6 +122,88 @@ def test_budget_refund():
     assert b.try_consume(1)
 
 
+# ---------------------------------------------------------------- occasions (bug: "work out" got jeans/tailored pants)
+WORKOUT_BAD = ("Dark Jeans", "Tailored Pants", "Wide Trousers", "Loafers", "Ankle Boots", "Linen Blazer",
+               "Classic Silk Blouse", "Silk Camisole", "Ribbed Knit Dress", "Wool Coat")
+
+
+def gym_closet():
+    w = core.sample_closet()
+    for name, t in (("Black Leggings", "bottom"), ("Running Shoes", "shoes"), ("Gym Tank", "top")):
+        w.add_item(core.Garment(w.next_id(), name, t, core.default_layer(t), "black", "light", "casual"))
+    return w
+
+
+def test_work_out_is_not_work():
+    for msg in ("I want to work out", "going to the gym", "workout later", "leg day at the gym, then a run",
+                "yoga class", "training session tonight"):
+        req = core.parse_chat(msg)
+        assert req.occasion == "workout" and req.plans == "off duty", (msg, req)
+    assert core.parse_chat("training session tonight").condition == "dry"  # "training" is not rain
+    assert core.parse_chat("rainy day at the office").occasion == "office"
+
+
+def test_workout_never_jeans_or_tailored_pants():
+    w = gym_closet()
+    for msg in ("I want to work out", "gym", "going for a run"):
+        ans = core.rules_answer(msg, w, core.StyleProfile(), "offline rules")
+        names = [g.name for g in ans["items"]]
+        assert names, ans
+        assert not set(names) & set(WORKOUT_BAD), names
+        assert "Black Leggings" in names and "Running Shoes" in names, names
+
+
+def test_workout_without_activewear_says_whats_missing():
+    ans = core.rules_answer("I want to work out", core.sample_closet(), core.StyleProfile(), "offline rules")
+    assert ans["items"] == [], [g.name for g in ans["items"]]
+    assert "missing" in ans["reply"] and "leggings" in ans["reply"], ans["reply"]
+    assert "Dark Jeans" not in ans["reply"] and "Tailored Pants" not in ans["reply"]
+    # with nothing athletic at all, every slot is listed
+    w = core.sample_closet()
+    w.remove(10); w.remove(13)  # Navy Tee, White Sneakers
+    assert len(core.occasion_gaps(w, "workout")) == 3
+
+
+def test_office_still_works():
+    ans = core.rules_answer("business meeting, blue theme", core.sample_closet(), core.StyleProfile(), "x")
+    names = [g.name for g in ans["items"]]
+    assert names and not ans.get("missing")
+    assert any(g.dressiness == "office" for g in ans["items"]), names
+    assert core.parse_chat("business meeting").plans == "work"
+
+
+def test_interview_and_wedding_skip_casual_pieces():
+    for msg in ("job interview tomorrow", "wedding on saturday"):
+        names = [g.name for g in core.rules_answer(msg, core.sample_closet(), core.StyleProfile(), "x")["items"]]
+        assert names and not {"Dark Jeans", "White Sneakers", "Navy Tee"} & set(names), (msg, names)
+
+
+def test_llm_gets_occasion_and_rules():
+    req = core.parse_chat("I want to work out")
+    ctx = core.closet_context(core.sample_closet(), core.StyleProfile(), req)
+    assert ctx["today"]["occasion"] == "workout" and ctx["today"]["plans"] == "off duty"
+    assert "jeans" in ctx["today"]["occasion_rules"].lower()
+    assert ctx["today"]["missing_for_occasion"]
+    assert '"outfit": []' in core.SYSTEM_PROMPT
+
+
+def test_llm_wrong_occasion_picks_are_rejected():
+    # Grok picks Navy Tee + Dark Jeans + White Sneakers for a workout: replaced by the occasion-aware rules
+    w = gym_closet()
+    ans = core.stylist_chat("I want to work out", [], w, core.StyleProfile(), model="m",
+                            client=_FakeClient(content='{"reply": "ok", "outfit": [10, 12, 13], "reasoning": "r"}'))
+    names = [g.name for g in ans["items"]]
+    assert "Dark Jeans" not in names and "Black Leggings" in names, names
+    assert "didn't suit" in ans["source"]
+
+
+def test_llm_honest_missing_reply_is_kept():
+    ans = core.stylist_chat("I want to work out", [], core.sample_closet(), core.StyleProfile(), model="m",
+                            client=_FakeClient(content='{"reply": "You need leggings or gym shorts.", "outfit": [], '
+                                                       '"reasoning": "no workout bottoms"}'))
+    assert ans["items"] == [] and ans["source"] == "llm (m)" and "leggings" in ans["reply"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

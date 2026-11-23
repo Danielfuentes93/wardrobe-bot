@@ -50,6 +50,173 @@ def is_rain_bad_shoe(g) -> bool:
     return g.type == "shoes" and _name_has(g, RAIN_BAD_SHOE_WORDS)
 
 
+# ---------------------------------------------------------------- occasions
+# What the user says they're doing ("I want to work out", "job interview", "wedding").  Garments have no tags
+# yet, so suitability is read from the garment name + type + dressiness, the same way rain gear is.
+# Patterns are regexes matched on the lowercased message; the FIRST occasion that matches wins, so
+# "workout" is checked before "office" (otherwise "work out" reads as "work").
+OCCASIONS = {
+    "workout": {
+        "label": "a workout",
+        "patterns": [r"\bwork(?:ing)?[\s-]?outs?\b", r"\bgym\b", r"\bexercis", r"\brun(?:s|ning)?\b", r"\bjog",
+                     r"\byoga\b", r"\bpilates\b", r"\bspin class", r"\bcardio\b", r"\bcrossfit\b",
+                     r"\blift(?:ing)? weights\b", r"\bweightlifting\b", r"\btraining\b", r"\bhik(?:e|ing)\b",
+                     r"\btennis\b", r"\bbasketball\b", r"\bsoccer\b", r"\bbike ride\b", r"\bcycling\b",
+                     r"\bsweat(?:y)?\b", r"\bfitness\b", r"\bboxing\b", r"\bclimbing\b"],
+        "plans": "off duty", "dressiness": 1,
+        # every piece must look athletic; a plain tee/tank is fine on top
+        "require": {
+            "top": ("tee", "t-shirt", "tshirt", "tank", "sports bra", "bra", "hoodie", "sweatshirt", "athletic",
+                    "gym", "running", "performance", "dri", "workout", "training", "jersey", "active",
+                    "compression", "quarter-zip", "crop"),
+            "bottom": ("legging", "jogger", "sweatpant", "sweats", "track", "short", "athletic", "gym", "running",
+                       "yoga", "compression", "tights", "active", "workout", "training", "bike short"),
+            "shoes": ("sneaker", "trainer", "running", "athletic", "gym", "cross", "tennis", "basketball",
+                      "workout", "training", "hiking", "trail"),
+            "mid-layer": ("hoodie", "sweatshirt", "fleece", "quarter-zip", "track", "athletic", "running", "zip"),
+            "outer": ("windbreaker", "track", "running", "shell", "rain", "anorak", "athletic", "hoodie", "fleece"),
+        },
+        "exclude": ("jean", "denim", "tailored", "trouser", "slack", "chino", "blazer", "suit", "silk", "satin",
+                    "blouse", "camisole", "loafer", "oxford", "heel", "pump", "derby", "wool", "cashmere",
+                    "leather", "ankle boot", "dress", "button", "pencil", "cardigan"),
+        "no_dresses": True, "no_formal": True,
+        "add": {"top": "a workout top (athletic tee, tank or sports bra)",
+                "bottom": "workout bottoms (leggings, gym shorts or joggers)",
+                "shoes": "athletic shoes (running shoes or trainers)"},
+        "note": "The user is going to WORK OUT / exercise. Only athletic pieces: sneakers or trainers, leggings, "
+                "gym shorts, joggers or sweatpants, tees, tanks, sports bras, hoodies. NEVER jeans, tailored pants, "
+                "trousers, chinos, blazers, silk, dresses, boots, loafers or other dress shoes.",
+    },
+    "interview": {
+        "label": "an interview",
+        "patterns": [r"\binterview"],
+        "plans": "work", "dressiness": 2.6,
+        "exclude": ("sneaker", "trainer", "jean", "denim", "tee", "t-shirt", "tank", "hoodie", "sweat", "legging",
+                    "jogger", "short", "athletic", "gym", "flip", "sandal", "crop"),
+        "add": {"top": "a crisp shirt or blouse", "bottom": "tailored trousers or a skirt",
+                "shoes": "polished shoes (loafers, oxfords or low heels)"},
+        "note": "Job interview: polished, office-to-formal pieces. No sneakers, jeans, tees, hoodies or athletic wear.",
+    },
+    "wedding": {
+        "label": "a wedding or formal event",
+        "patterns": [r"\bwedding", r"\bgala\b", r"\bblack[\s-]tie", r"\bformal\b", r"\bcocktail", r"\bfuneral",
+                     r"\bceremony\b"],
+        "plans": "work", "dressiness": 3,
+        "exclude": ("sneaker", "trainer", "jean", "denim", "tee", "t-shirt", "tank", "hoodie", "sweat", "legging",
+                    "jogger", "short", "athletic", "gym", "flip", "sandal", "parka", "puffer"),
+        "no_casual": True,
+        "add": {"top": "a dressy top or shirt", "bottom": "dress trousers or a skirt", "dress": "a formal dress",
+                "shoes": "dress shoes or heels"},
+        "note": "Wedding / formal event: the dressiest pieces in the closet. No casual or athletic wear.",
+    },
+    "office": {
+        "label": "work",
+        "patterns": [r"\boffice\b", r"\bmeeting", r"\bbusiness\b", r"\bwork(?:ing|day)?\b", r"\bpresentation",
+                     r"\bconference\b", r"\bclient"],
+        "plans": "work", "dressiness": 2,
+        "exclude": ("athletic", "gym", "legging", "jogger", "sweatpant", "sweats", "running", "workout", "hoodie",
+                    "flip", "sports bra"),
+        "add": {"top": "an office top (shirt or blouse)", "bottom": "trousers or a skirt",
+                "shoes": "office shoes (loafers or boots)"},
+        "note": "Work / office: office-appropriate pieces. No athletic wear or hoodies.",
+    },
+    "date": {
+        "label": "a date",
+        "patterns": [r"\bdate\b", r"\bdate night", r"\bromantic", r"\banniversary"],
+        "plans": "off duty", "dressiness": 1.8,
+        "exclude": ("athletic", "gym", "legging", "jogger", "sweatpant", "sweats", "running", "workout", "hoodie",
+                    "flip", "sports bra"),
+        "add": {"top": "a nice top", "bottom": "dark jeans or trousers", "shoes": "clean shoes or boots"},
+        "note": "Date: put-together, a step above casual. No gym wear or hoodies.",
+    },
+    "party": {
+        "label": "a night out",
+        "patterns": [r"\bpart(?:y|ies)\b", r"\bhappy hour", r"\bdrinks\b", r"\bbar\b", r"\bclub", r"\bnight out",
+                     r"\bconcert"],
+        "plans": "off duty", "dressiness": 1.7,
+        "exclude": ("athletic", "gym", "legging", "jogger", "sweatpant", "sweats", "running", "workout",
+                    "flip", "sports bra"),
+        "add": {"top": "a going-out top", "bottom": "dark jeans or trousers", "shoes": "boots or clean sneakers"},
+        "note": "Party / happy hour / night out: social and a bit dressed up. No gym wear.",
+    },
+    "travel": {
+        "label": "travel",
+        "patterns": [r"\btravel", r"\bflight\b", r"\bflying\b", r"\bairport", r"\bplane\b", r"\broad trip",
+                     r"\btrain ride"],
+        "plans": "off duty", "dressiness": 1,
+        "exclude": ("heel", "pump", "silk", "satin", "tailored", "blazer", "camisole"),
+        "add": {"top": "a comfy layer-friendly top", "bottom": "comfortable pants or joggers",
+                "shoes": "comfortable walking shoes"},
+        "note": "Travel: comfortable, easy to layer and walk in. No heels, silk or stiff tailoring.",
+    },
+    "lounge": {
+        "label": "lounging at home",
+        "patterns": [r"\blounge", r"\blounging", r"\bstay(?:ing)? (?:in|home)", r"\bat home\b", r"\bchill",
+                     r"\bcouch", r"\bnetflix", r"\bcozy"],
+        "plans": "off duty", "dressiness": 1,
+        "exclude": ("heel", "pump", "silk", "satin", "tailored", "blazer", "camisole", "loafer", "oxford", "wool coat",
+                    "trouser"),
+        "no_formal": True,
+        "add": {"top": "a soft tee or sweatshirt", "bottom": "sweatpants, joggers or leggings",
+                "shoes": "slippers or easy sneakers"},
+        "note": "Lounging / staying in: comfy and relaxed. No tailoring, silk or dress shoes.",
+    },
+    "casual": {
+        "label": "a casual day",
+        "patterns": [r"\bweekend", r"\bcasual", r"\boff[\s-]duty", r"\bbrunch", r"\berrands?\b", r"\brelax"],
+        "plans": "off duty", "dressiness": 1,
+        "exclude": (),
+        "add": {"top": "a casual top", "bottom": "jeans or casual pants", "shoes": "sneakers"},
+        "note": "Casual day: relaxed everyday pieces.",
+    },
+}
+RAIN_RE = re.compile(r"\b(?:rain\w*|storm\w*|drizzl\w*|downpour|wet weather)\b")
+
+
+def detect_occasion(message) -> str | None:
+    m = str(message).lower()
+    for key, o in OCCASIONS.items():
+        if any(re.search(p, m) for p in o["patterns"]):
+            return key
+    return None
+
+
+def suits_occasion(g, occasion) -> bool:
+    """Can this garment be worn for the occasion?  None/unknown occasion allows everything."""
+    o = OCCASIONS.get(occasion)
+    if o is None:
+        return True
+    if _name_has(g, o.get("exclude", ())):
+        return False
+    if o.get("no_dresses") and g.type == "dress":
+        return False
+    if o.get("no_formal") and g.dressiness == "formal":
+        return False
+    if o.get("no_casual") and g.dressiness == "casual":
+        return False
+    req = o.get("require")
+    if req:
+        words = req.get(g.layer if g.layer in ("mid-layer", "outer") else g.type)
+        if words is None or not _name_has(g, words):
+            return False
+    return True
+
+
+def occasion_gaps(wardrobe, occasion) -> list[str]:
+    """What's missing to dress for the occasion at all (empty list = the closet can do it)."""
+    o = OCCASIONS.get(occasion)
+    if o is None:
+        return []
+    ok = [g for g in wardrobe.available() if suits_occasion(g, occasion)]
+    has = {t: any(g.type == t and (t != "top" or g.layer == "base") for g in ok) for t in TYPES}
+    missing = []
+    if not has["dress"] or o.get("no_dresses"):
+        missing += [t for t in ("top", "bottom") if not has[t]]
+    if not has["shoes"]:
+        missing.append("shoes")
+    return [o["add"].get(t, t) for t in missing]
+
+
 def default_layer(gtype: str) -> str:
     return {"top": "base", "dress": "base", "bottom": "bottom", "shoes": "shoes", "outer": "outer"}[gtype]
 
@@ -138,8 +305,11 @@ class OutfitRequest:
     no_repeat_yesterday: bool = True
     color_theme: str | None = None
     min_days_unworn: int = 0
+    occasion: str | None = None  # a key of OCCASIONS (set by the chat parser); None = plain Work/Off duty
 
     def target_dressiness(self):
+        if self.occasion in OCCASIONS:
+            return OCCASIONS[self.occasion]["dressiness"]
         return DRESSINESS["office"] if self.plans == "work" else DRESSINESS["casual"]
 
     def target_warmth(self):
@@ -216,6 +386,8 @@ def eligible(wardrobe, req):
 
 
 def build_combos(items, req):
+    if req.occasion:
+        items = [g for g in items if suits_occasion(g, req.occasion)]
     by_type = {t: [g for g in items if g.type == t] for t in TYPES}
     mids = [g for g in items if g.layer == "mid-layer"]
     outers = [g for g in items if g.layer == "outer"]
@@ -381,14 +553,13 @@ def gap_analysis(wardrobe, when=None):
 def parse_chat(message, temp_f=58, condition="dry"):
     m = message.lower()
     req = OutfitRequest(temp_f=temp_f, condition=condition, temp_given=False)
-    if any(w in m for w in ["meeting", "work", "office", "business", "interview"]):
-        req.plans = "work"
-    if any(w in m for w in ["weekend", "casual", "off duty", "brunch", "relax"]):
-        req.plans = "off duty"
+    req.occasion = detect_occasion(m)
+    if req.occasion:
+        req.plans = OCCASIONS[req.occasion]["plans"]
     for color in COLORS[:-1]:
         if color in m or (color == "blue" and "navy" in m):
             req.color_theme = color
-    if "rain" in m:
+    if RAIN_RE.search(m):  # whole words only: "training" or "brain" is not rain
         req.condition = "rain"
     t = re.search(r"(\d+)\s*(?:°|degrees|f\b)", m)
     if t:
@@ -402,8 +573,13 @@ def parse_chat(message, temp_f=58, condition="dry"):
 SYSTEM_PROMPT = """You are Wardrobe Bot, a friendly personal stylist inside the Fashionista app.
 Pick ONE outfit using ONLY garment ids from the user's closet JSON. Never invent items.
 A valid outfit is top+bottom+shoes or dress+shoes, optionally with a mid-layer and/or outer layer.
-Respect the weather, plans and the learned style profile (positive weights = liked, negative = disliked).
+The user's message says what they are doing (CONTEXT today.occasion and today.occasion_rules summarise it).
+That activity comes FIRST: every piece must suit it. Example: for a workout only athletic pieces (sneakers,
+leggings, gym shorts, joggers, tees, tanks, hoodies), never jeans, tailored pants, trousers, blazers or dress shoes.
+Then respect the weather and the learned style profile (positive weights = liked, negative = disliked).
 Avoid items in banned_ids. Prefer items not worn recently.
+If the closet has no suitable pieces for the activity (see today.missing_for_occasion), do NOT substitute
+unsuitable items: return "outfit": [] and say honestly which pieces are missing and suggest adding them.
 Reply with JSON only: {"reply": "<short friendly message>", "outfit": [<ids>], "reasoning": "<one sentence>"}"""
 
 
@@ -416,6 +592,9 @@ def closet_context(wardrobe, profile, req):
         "style_profile": {"weights": {k: round(v, 2) for k, v in profile.weights.items()},
                           "banned_ids": sorted(profile.banned_ids)},
         "today": {"date": today().isoformat(), "plans": req.plans,
+                  "occasion": req.occasion,
+                  "occasion_rules": OCCASIONS[req.occasion]["note"] if req.occasion else None,
+                  "missing_for_occasion": occasion_gaps(wardrobe, req.occasion),
                   "temp_f": req.temp_f if req.temp_given else None,  # None = not given; don't invent one
                   "condition": req.condition},
         "recent_wear": [{"id": g.id, "name": g.name, "last_worn": g.last_worn.isoformat()} for g in recent],
@@ -446,8 +625,29 @@ def validate_outfit(ids, wardrobe, profile):
     return pieces if ok else None
 
 
+def missing_answer(wardrobe, occasion, missing, note):
+    """Honest reply when the closet can't dress for the occasion: say what's missing instead of guessing."""
+    label = OCCASIONS[occasion]["label"]
+    usable = [g.name for g in wardrobe.available() if suits_occasion(g, occasion)]
+    reply = (f"I can't put together a proper outfit for {label} from your closet yet. "
+             f"You're missing {_join(missing)}.")
+    if usable:
+        reply += f" You do have {_join(usable)} that would work."
+    reply += " Add the missing pieces in the Closet tab (the Shop tab has ideas)."
+    return {"reply": reply, "items": [], "reasoning": f"Missing for {label}: {_join(missing)}.",
+            "source": note, "missing": missing}
+
+
+def _join(words):
+    words = list(words)
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
 def rules_answer(message, wardrobe, profile, note):
     req = parse_chat(message)
+    missing = occasion_gaps(wardrobe, req.occasion)
+    if missing:
+        return missing_answer(wardrobe, req.occasion, missing, note)
     picks = smart_suggest(wardrobe, req, profile, n=1)
     if not picks:  # relax the rules once before giving up
         req.no_repeat_yesterday, req.min_days_unworn, req.color_theme = False, 0, req.color_theme
@@ -458,7 +658,8 @@ def rules_answer(message, wardrobe, profile, note):
         return {"reply": "I couldn't build an outfit with those rules. Try relaxing one?", "items": [],
                 "reasoning": "", "source": note}
     o = picks[0]
-    return {"reply": f"How about {o['name']}?", "items": o["items"], "reasoning": o["reason"], "source": note}
+    label = f" for {OCCASIONS[req.occasion]['label']}" if req.occasion else ""
+    return {"reply": f"How about {o['name']}{label}?", "items": o["items"], "reasoning": o["reason"], "source": note}
 
 
 def build_chat_request(model, messages, max_tokens=600, reasoning_effort=None) -> dict:
@@ -519,6 +720,8 @@ def stylist_chat(message, history, wardrobe, profile, req=None, client=None, mod
             try:
                 data = json.loads(resp.choices[0].message.content or "")
                 pieces = validate_outfit(data.get("outfit"), wardrobe, profile)
+                if data.get("outfit") == [] and str(data.get("reply", "")).strip() and occasion_gaps(wardrobe, req.occasion):
+                    pieces = []  # an honest "you're missing X" answer (only accepted when something IS missing)
             except (ValueError, AttributeError, IndexError, TypeError):
                 data, pieces = None, None
                 log.warning("LLM reply was not usable JSON (model=%s, finish_reason=%s)", model,
@@ -527,6 +730,9 @@ def stylist_chat(message, history, wardrobe, profile, req=None, client=None, mod
                 ans = rules_answer(message, wardrobe, profile, "rules (LLM reply unreadable)")
             elif pieces is None:
                 ans = rules_answer(message, wardrobe, profile, "rules (LLM picked invalid items)")
+            elif req.occasion and not all(suits_occasion(g, req.occasion) for g in pieces):
+                log.warning("LLM ignored the occasion %s: %s", req.occasion, [g.name for g in pieces])
+                ans = rules_answer(message, wardrobe, profile, f"rules (LLM picks didn't suit {req.occasion})")
             else:
                 ans = {"reply": str(data.get("reply", ""))[:600], "items": pieces,
                        "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model})"}
