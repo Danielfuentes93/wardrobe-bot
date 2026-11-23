@@ -2,6 +2,7 @@
 Run:  streamlit run app.py"""
 import base64
 import html
+from pathlib import Path
 
 import streamlit as st
 
@@ -9,7 +10,9 @@ import guards
 import ui_style
 import wardrobe_core as core
 
-st.set_page_config(page_title="Fashionista", page_icon="👗", layout="wide", initial_sidebar_state="collapsed")
+ASSETS = Path(__file__).parent / "assets"
+_MARK = ASSETS / "logo-mark.png"
+st.set_page_config(page_title="Fashionista", page_icon=str(_MARK) if _MARK.exists() else "👗", layout="wide", initial_sidebar_state="collapsed")
 
 # ---------------------------------------------------------------- styling (soft monochrome dashboard look; CSS lives in ui_style.py)
 st.markdown(ui_style.CSS, unsafe_allow_html=True)
@@ -137,6 +140,16 @@ def nav():
                 f'<span class="fx-ic avatar">{IC["user"]}</span></div></div>', unsafe_allow_html=True)
 
 
+@st.cache_data
+def logo_img() -> str:
+    """The Fashionista logo (assets/logo.svg) as an inline <img>; falls back to the lock icon if the file is missing."""
+    svg = ASSETS / "logo.svg"
+    if not svg.exists():
+        return f'<div class="lock">{IC["lock"]}</div>'
+    b64 = base64.b64encode(svg.read_bytes()).decode()
+    return f'<img class="fx-gate-logo" src="data:image/svg+xml;base64,{b64}" alt="Fashionista, your AI stylist">'
+
+
 def demo_strip():
     st.markdown(
         '<div class="fx-demo"><span class="fx-pill">Class demo</span><div><details><summary>'
@@ -151,7 +164,7 @@ if guards.passcode_required() and not st.session_state.get("authed"):
     demo_strip()
     nav()
     with st.container(key="gate_wrap"):
-        st.markdown(f'<div class="fx-gate-head"><div class="lock">{IC["lock"]}</div><h3>Class access</h3>'
+        st.markdown(f'<div class="fx-gate-head">{logo_img()}<h3>Class access</h3>'
                     '<p>Enter the passcode your instructor shared to step inside.</p></div>', unsafe_allow_html=True)
         with st.form("gate"):
             code = st.text_input("Class passcode", type="password", key="passcode_input")

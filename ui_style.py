@@ -344,7 +344,8 @@ button[data-variant="pills"][data-selected="true"] p, [data-testid="stBaseButton
 .st-key-gate_wrap { max-width:440px; margin:26px auto 4px; }
 .fx-gate-head { text-align:center; margin-bottom:6px; }
 .fx-gate-head .lock { width:56px; height:56px; margin:0 auto 14px; border-radius:50%; background:var(--ink); color:#fff; display:flex; align-items:center; justify-content:center; box-shadow:0 10px 22px rgba(14,14,16,.25); }
-.fx-gate-head h3 { font-size:1.4rem !important; margin:0 !important; }
+.fx-gate-logo { display:block; width:260px; max-width:82%; height:auto; margin:4px auto 22px; }
+.fx-gate-head h3 { font-size:1.15rem !important; margin:0 !important; }
 .fx-gate-head p { color:var(--muted); font-size:13px; margin:6px 0 0; }
 .st-key-gate_wrap [data-testid="stForm"] { background:transparent; padding:.2rem 0 0 !important; }
 
