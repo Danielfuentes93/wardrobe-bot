@@ -165,3 +165,16 @@ def test_storage(tmp_path, monkeypatch):
         storage._path("../x")
     os.utime(tmp_path / f"{t}.json", (0, 0))
     assert storage.prune() == 1 and not storage.exists(t)
+
+
+def test_llm_empty_pick_text_matches_completed_look():
+    # live bug: Grok said "buy everything" (outfit []) while the cards showed Navy Tee + White Sneakers from the closet
+    ans = core.stylist_chat("I want to work out", [], core.sample_closet(), core.StyleProfile(), model="m",
+                            client=_FakeClient(content='{"reply": "Your closet lacks athletic wear, grab these essentials!", '
+                                                       '"outfit": [], "missing": [{"slot": "bottom", "name": "Black joggers"}], '
+                                                       '"reasoning": "all slots require new purchases"}'))
+    assert [g.name for g in ans["items"]] == ["Navy Tee", "White Sneakers"]
+    assert "Navy Tee (from your closet)" in ans["reply"] and "black joggers" in ans["reply"]
+    assert "all slots" not in ans["reasoning"] and ans["source"] == "llm (m) + closet rules"
+    ctx = core.closet_context(core.sample_closet(), core.StyleProfile(), core.parse_chat("I want to work out"))
+    assert ctx["today"]["suitable_ids"] == [10, 13]

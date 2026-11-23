@@ -620,7 +620,7 @@ leggings, gym shorts, joggers, tees, tanks, hoodies), never jeans, tailored pant
 Then respect the weather and the learned style profile (positive weights = liked, negative = disliked).
 Avoid items in banned_ids. Prefer items not worn recently.
 If the closet has no suitable piece for a slot (see today.missing_for_occasion), do NOT substitute unsuitable
-items and do NOT give up: still build a FULL look. Put the suitable owned ids in "outfit" and name what to buy
+items and do NOT give up: still build a FULL look. Put the suitable owned ids (today.suitable_ids) in "outfit" and name what to buy
 for each empty slot in "missing", e.g. [{"slot": "bottom", "name": "Black leggings"}] (slot is top, bottom or shoes).
 Say in the reply which pieces come from their closet and which they don't own yet.
 Reply with JSON only: {"reply": "<short friendly message>", "outfit": [<ids>], "missing": [<{"slot","name"}>],
@@ -639,6 +639,8 @@ def closet_context(wardrobe, profile, req):
                   "occasion": req.occasion,
                   "occasion_rules": OCCASIONS[req.occasion]["note"] if req.occasion else None,
                   "missing_for_occasion": gap_hints(wardrobe, req.occasion),
+                  "suitable_ids": [g.id for g in wardrobe.available() if suits_occasion(g, req.occasion)]
+                  if req.occasion else None,
                   "temp_f": req.temp_f if req.temp_given else None,  # None = not given; don't invent one
                   "condition": req.condition},
         "recent_wear": [{"id": g.id, "name": g.name, "last_worn": g.last_worn.isoformat()} for g in recent],
@@ -874,11 +876,24 @@ def stylist_chat(message, history, wardrobe, profile, req=None, client=None, mod
                     for m in data.get("missing") or []:
                         if isinstance(m, dict) and m.get("slot") in gaps and m.get("name"):
                             names[m["slot"]] = str(m["name"])
+                    picked = list(pieces)
                     pieces, missing = complete_look(wardrobe, profile, req, owned=pieces, names=names)
+                    if any(g not in picked for g in pieces if g.layer in ("base", "bottom", "shoes")):
+                        # Grok skipped owned pieces that do suit the occasion, so its text ("buy everything")
+                        # no longer matches the cards: describe the completed look ourselves
+                        ours = missing_answer(wardrobe, profile, req, "")
+                        text = look_text(pieces, missing, req.occasion)
+                        gaps_txt = ours["reply"][len(look_text(ours["items"], ours["missing_items"], req.occasion)):]
+                        data = {"reply": (text + gaps_txt).strip(), "reasoning": ours["reasoning"]}
+                        model_note = " + closet rules"
+                    else:
+                        model_note = ""
+                else:
+                    model_note = ""
                 reply = str(data.get("reply", "")).strip()[:600] or look_text(pieces, missing, req.occasion)
                 ans = {"reply": reply, "items": pieces, "missing_items": missing,
                        "missing": [m["hint"] for m in missing],
-                       "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model})"}
+                       "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model}){model_note}"}
     ans["llm_error"] = llm_error
     history.append({"role": "user", "content": message})
     ans.setdefault("missing_items", [])
