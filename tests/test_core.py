@@ -154,8 +154,13 @@ def test_workout_never_jeans_or_tailored_pants():
 
 
 def test_workout_without_activewear_says_whats_missing():
+    # iteration 1: still a FULL look -> the suitable owned pieces + a "shop this" card for the missing bottoms
     ans = core.rules_answer("I want to work out", core.sample_closet(), core.StyleProfile(), "offline rules")
-    assert ans["items"] == [], [g.name for g in ans["items"]]
+    names = [g.name for g in ans["items"]]
+    assert names == ["Navy Tee", "White Sneakers"], names
+    assert not set(names) & set(WORKOUT_BAD), names
+    assert [m["slot"] for m in ans["missing_items"]] == ["bottom"]
+    assert "leggings" in ans["missing_items"][0]["name"].lower()
     assert "missing" in ans["reply"] and "leggings" in ans["reply"], ans["reply"]
     assert "Dark Jeans" not in ans["reply"] and "Tailored Pants" not in ans["reply"]
     # with nothing athletic at all, every slot is listed
@@ -184,7 +189,7 @@ def test_llm_gets_occasion_and_rules():
     assert ctx["today"]["occasion"] == "workout" and ctx["today"]["plans"] == "off duty"
     assert "jeans" in ctx["today"]["occasion_rules"].lower()
     assert ctx["today"]["missing_for_occasion"]
-    assert '"outfit": []' in core.SYSTEM_PROMPT
+    assert '"missing"' in core.SYSTEM_PROMPT and "FULL look" in core.SYSTEM_PROMPT
 
 
 def test_llm_wrong_occasion_picks_are_rejected():
@@ -201,7 +206,10 @@ def test_llm_honest_missing_reply_is_kept():
     ans = core.stylist_chat("I want to work out", [], core.sample_closet(), core.StyleProfile(), model="m",
                             client=_FakeClient(content='{"reply": "You need leggings or gym shorts.", "outfit": [], '
                                                        '"reasoning": "no workout bottoms"}'))
-    assert ans["items"] == [] and ans["source"] == "llm (m)" and "leggings" in ans["reply"]
+    # Grok's honest reply is kept, and the look is completed with owned pieces + a shop-this card
+    assert ans["source"] == "llm (m)" and "leggings" in ans["reply"]
+    assert [g.name for g in ans["items"]] == ["Navy Tee", "White Sneakers"]
+    assert [m["slot"] for m in ans["missing_items"]] == ["bottom"]
 
 
 if __name__ == "__main__":

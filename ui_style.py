@@ -406,6 +406,45 @@ button[data-variant="pills"][data-selected="true"] p, [data-testid="stBaseButton
   .st-key-filters [data-testid="stColumn"] { min-width:calc(50% - 10px) !important; flex:1 1 calc(50% - 10px) !important; }
   .st-key-filters [data-testid="stColumn"]:last-child { min-width:100% !important; }
 }
+/* ---------- iteration 1: saved badge, shop-this cards, tagging, occasion note, closet card ---------- */
+.fx-saved { margin-left:12px; display:inline-flex; align-items:center; gap:4px; background:var(--ok-tint); color:var(--ok); font:600 11.5px/1 var(--sans); padding:6px 11px; border-radius:999px; letter-spacing:0; }
+.fx-saved.off { background:var(--peach-tint); color:#8a5a26; }
+.fx-own { font:600 10.5px/1.3 var(--sans); color:var(--ok); margin-top:3px; }
+.fx-missing { border:1.5px dashed var(--line-2); border-radius:20px; background:#fff !important; }
+.fx-tile.fx-hatch { background:repeating-linear-gradient(135deg, #f1f1ef 0 10px, #e7e7e4 10px 20px) !important; }
+.fx-tile.fx-hatch .fx-emoji { opacity:.75; filter:grayscale(.6); }
+.fx-miss { font:600 10.5px/1.3 var(--sans); color:#c0703a; margin-top:3px; }
+.fx-shopbtn { display:inline-block; margin-top:7px; background:var(--ink); color:#fff !important; font:600 11px/1 var(--sans); padding:7px 12px; border-radius:999px; text-decoration:none !important; }
+.fx-shopbtn:hover { background:#2a2a30; }
+.fx-plus { align-self:center; justify-self:center; font:500 20px/1 var(--sans); color:var(--faint); }
+.fx-minirow:has(.fx-plus) { display:flex; flex-wrap:wrap; align-items:center; }
+.fx-minirow:has(.fx-plus) > .fx-card { width:132px; flex:none; }
+.fx-plus { padding:0 2px; }
+.fx-occnote { display:inline-block; background:var(--peach-tint); color:#6b4520; border-radius:14px; padding:9px 14px; font-size:12.5px; font-weight:500; }
+.fx-tagcard { display:flex; gap:16px; align-items:stretch; background:var(--soft); border-radius:22px; padding:12px; margin:4px 0 6px; }
+.fx-tagcard img { width:120px; height:120px; object-fit:cover; border-radius:16px; flex:none; box-shadow:0 0 0 3px #fff, 0 0 0 4.5px var(--peach-deep); }
+.fx-tagrows { flex:1; display:flex; flex-direction:column; gap:7px; min-width:0; }
+.fx-tagrow { display:flex; justify-content:space-between; align-items:center; background:#fff; border-radius:12px; padding:8px 12px; font-size:12.5px; }
+.fx-tagrow span { color:var(--muted); }
+.fx-tagrow b { display:inline-flex; align-items:center; gap:6px; color:var(--ink); }
+.fx-tagok { font:600 11.5px/1.3 var(--sans); color:var(--ok); }
+.fx-tagq { font-size:12.5px; color:var(--ink-2); }
+[class*="st-key-closetcard_"] { background:var(--card); border-radius:26px; padding:18px 20px !important; box-shadow:var(--shadow); gap:.7rem !important; }
+.fx-cc .top { display:flex; justify-content:space-between; align-items:center; }
+.fx-cc .t { font:600 14px/1.2 var(--sans); color:var(--ink); }
+.fx-savedpill { background:var(--ok-tint); color:var(--ok); font:600 11px/1 var(--sans); padding:6px 10px; border-radius:999px; }
+.fx-cc .num { font:700 40px/1 var(--sans); letter-spacing:-.04em; color:var(--ink); margin-top:10px; }
+.fx-cc .num small { font:500 13px var(--sans); color:var(--muted); letter-spacing:0; margin-left:4px; }
+.fx-cc .sub { font-size:12px; color:var(--muted); margin-top:4px; }
+.fx-icos { display:flex; gap:6px; margin-top:10px; flex-wrap:wrap; }
+.fx-ico { width:34px; height:34px; border-radius:10px; background:var(--soft); display:inline-flex; align-items:center; justify-content:center; font-size:18px; flex:none; }
+[class*="st-key-closetcard_"] .stButton button { width:100% !important; border-radius:999px !important; }
+.st-key-shoplist { background:var(--card); border-radius:26px; padding:18px 20px !important; box-shadow:var(--shadow); }
+.fx-shoprow { display:flex; align-items:center; gap:12px; }
+.fx-shoprow > div { flex:1; min-width:0; font-size:13.5px; }
+.fx-shoprow .s { font-size:12px; color:var(--muted); }
+.fx-shoprow .fx-shopbtn { margin-top:0; }
+.st-key-outfit_gap { background:var(--card); border-radius:26px; padding:20px 22px !important; box-shadow:var(--shadow); }
 </style>
 """
 
