@@ -55,6 +55,12 @@ def llm_model() -> str:
     return str(get_secret("OPENAI_MODEL", DEFAULT_XAI_MODEL if "x.ai" in base else "gpt-4o-mini")).strip()
 
 
+def vision_model() -> str:
+    """Model for photo tagging (secret VISION_MODEL, default: the stylist model).  It may not accept images; the
+    app then falls back to offline colour detection."""
+    return str(get_secret("VISION_MODEL", "") or llm_model()).strip()
+
+
 def llm_reasoning_effort(model: str):
     """reasoning_effort to send, or None to leave it out.  Secret LLM_REASONING_EFFORT overrides
     ("omit" = never send it).  Default: "low" for grok-4.3 so reasoning doesn't eat the whole max_tokens."""
