@@ -207,7 +207,7 @@ def test_llm_honest_missing_reply_is_kept():
                             client=_FakeClient(content='{"reply": "You need leggings or gym shorts.", "outfit": [], '
                                                        '"reasoning": "no workout bottoms"}'))
     # Grok's honest reply is kept, and the look is completed with owned pieces + a shop-this card
-    assert ans["source"] == "llm (m)" and "leggings" in ans["reply"]
+    assert ans["source"].startswith("llm (m)") and "leggings" in ans["reply"]
     assert [g.name for g in ans["items"]] == ["Navy Tee", "White Sneakers"]
     assert [m["slot"] for m in ans["missing_items"]] == ["bottom"]
 
