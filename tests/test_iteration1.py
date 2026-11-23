@@ -178,3 +178,13 @@ def test_llm_empty_pick_text_matches_completed_look():
     assert "all slots" not in ans["reasoning"] and ans["source"] == "llm (m) + closet rules"
     ctx = core.closet_context(core.sample_closet(), core.StyleProfile(), core.parse_chat("I want to work out"))
     assert ctx["today"]["suitable_ids"] == [10, 13]
+
+
+def test_llm_text_hides_ids_and_field_names():
+    ans = core.stylist_chat("I want to work out", [], core.sample_closet(), core.StyleProfile(), model="m",
+                            client=_FakeClient(content='{"reply": "Your Navy Tee (id 10) and White Sneakers (id 13) work.", '
+                                                       '"outfit": [10, 13], "missing": [{"slot": "bottom", "name": "Leggings"}], '
+                                                       '"reasoning": "suitable_ids provide the only workout top and shoes."}'))
+    assert ans["reply"] == "Your Navy Tee and White Sneakers work."
+    assert ans["reasoning"] == "The suitable pieces provide the only workout top and shoes."
+    assert "never mention ids" in core.SYSTEM_PROMPT

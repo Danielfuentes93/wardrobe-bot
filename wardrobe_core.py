@@ -623,6 +623,7 @@ If the closet has no suitable piece for a slot (see today.missing_for_occasion),
 items and do NOT give up: still build a FULL look. Put the suitable owned ids (today.suitable_ids) in "outfit" and name what to buy
 for each empty slot in "missing", e.g. [{"slot": "bottom", "name": "Black leggings"}] (slot is top, bottom or shoes).
 Say in the reply which pieces come from their closet and which they don't own yet.
+Write reply and reasoning for the user: name pieces by their names, never mention ids or JSON field names.
 Reply with JSON only: {"reply": "<short friendly message>", "outfit": [<ids>], "missing": [<{"slot","name"}>],
 "reasoning": "<one sentence on why this look works>"}"""
 
@@ -734,6 +735,19 @@ def look_text(items, missing, occasion):
     parts = [f"{g.name} (from your closet)" for g in items] + [f"{m['name'].lower()} (not in your closet yet)"
                                                                for m in missing]
     return f"{LOOK_LABEL.get(occasion, 'Your')} look: " + " + ".join(parts) + "."
+
+
+_ID_RE = re.compile(r"\s*\((?:item\s+)?ids?\s*[:#]?\s*\d+(?:\s*,\s*\d+)*\)", re.I)
+_FIELD_RE = re.compile(r"\b(?:today\.)?(suitable_ids|missing_for_occasion|occasion_rules|banned_ids)\b", re.I)
+
+
+def user_text(text, n) -> str:
+    """Model text without '(id 10)' or JSON field names like suitable_ids."""
+    text = _ID_RE.sub("", str(text or ""))
+    text = _FIELD_RE.sub(lambda m: {"suitable_ids": "the suitable pieces", "missing_for_occasion": "the missing pieces",
+                                    "occasion_rules": "the occasion rules", "banned_ids": "banned pieces"}[m.group(1).lower()], text)
+    text = text.strip()
+    return (text[:1].upper() + text[1:])[:n]
 
 
 def validate_partial(ids, wardrobe, profile, occasion):
@@ -890,10 +904,10 @@ def stylist_chat(message, history, wardrobe, profile, req=None, client=None, mod
                         model_note = ""
                 else:
                     model_note = ""
-                reply = str(data.get("reply", "")).strip()[:600] or look_text(pieces, missing, req.occasion)
+                reply = user_text(data.get("reply"), 600) or look_text(pieces, missing, req.occasion)
                 ans = {"reply": reply, "items": pieces, "missing_items": missing,
                        "missing": [m["hint"] for m in missing],
-                       "reasoning": str(data.get("reasoning", ""))[:300], "source": f"llm ({model}){model_note}"}
+                       "reasoning": user_text(data.get("reasoning"), 300), "source": f"llm ({model}){model_note}"}
     ans["llm_error"] = llm_error
     history.append({"role": "user", "content": message})
     ans.setdefault("missing_items", [])
